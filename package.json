@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "db:setup": "./scripts/execute-schema-instructions.sh",
     "db:schema": "./scripts/apply-schema.sh",
-    "db:test": "tsx scripts/test-db-connection.ts"
+    "db:test": "tsx scripts/test-db-connection.ts",
+    "db:types": "supabase gen types typescript --project-id dnsrrddirtfzwdwuezpk --schema public > types/supabase.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

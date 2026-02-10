@@ -3,6 +3,11 @@
 
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '../types/supabase'
+import { config } from 'dotenv'
+import { resolve } from 'path'
+
+// Load environment variables from .env.local
+config({ path: resolve(__dirname, '../.env.local') })
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -23,7 +28,7 @@ async function testConnection() {
   try {
     // Test 1: Basic connection
     console.log('1️⃣  Testing basic connection...')
-    const { data, error } = await supabase.from('stores').select('count')
+    const { error } = await supabase.from('stores').select('count')
     
     if (error) {
       console.error('❌ Connection failed:', error.message)
@@ -37,7 +42,7 @@ async function testConnection() {
     const tables = ['stores', 'campaigns', 'campaign_products', 'variants', 'orders', 'order_items']
     
     for (const table of tables) {
-      const { error } = await supabase.from(table as any).select('count').limit(0)
+      const { error } = await supabase.from(table as keyof Database['public']['Tables']).select('count').limit(0)
       if (error) {
         console.log(`   ❌ ${table} - ${error.message}`)
       } else {
@@ -46,8 +51,9 @@ async function testConnection() {
     }
     
     console.log('\n3️⃣  Checking RLS policies...')
-    const { data: policies, error: policyError } = await supabase
-      .rpc('pg_policies' as any)
+    // RLS policy check - this RPC may not exist, just checking connectivity
+    const { error: policyError } = await supabase
+      .rpc('pg_policies')
       .select('*')
       .limit(5)
     
