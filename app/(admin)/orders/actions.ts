@@ -280,3 +280,76 @@ export async function getOrderById(orderId: string) {
 
   return { order: data, error: null }
 }
+
+/**
+ * Bulk mark orders as shipped
+ */
+export async function bulkMarkAsShippedAction(
+  orderIds: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = await createClient()
+
+    // Update all orders to shipped status
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({
+        status: 'shipped',
+        shipped_at: new Date().toISOString(),
+      })
+      .in('id', orderIds)
+      .eq('status', 'paid') // Only mark paid orders as shipped
+
+    if (updateError) {
+      console.error('Failed to bulk update orders:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    // Optionally send shipped emails (commented out to avoid sending too many emails at once)
+    // In production, you might want to queue these or send them in batches
+    /*
+    const { data: orders } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        campaign:campaigns(
+          name,
+          ship_to_address,
+          store:stores(name, contact_email)
+        )
+      `)
+      .in('id', orderIds)
+
+    if (orders) {
+      for (const order of orders) {
+        try {
+          await sendEmailTemplate(
+            order.customer_email,
+            `Your order #${order.order_number} has shipped!`,
+            OrderShippedEmail({
+              orderNumber: order.order_number,
+              customerName: order.customer_name,
+              trackingNumber: order.tracking_number,
+              shipToAddress: order.campaign.ship_to_address,
+              storeName: order.campaign.store.name,
+              storeContactEmail: order.campaign.store.contact_email,
+            })
+          )
+        } catch (emailError) {
+          console.error('Failed to send shipped email:', emailError)
+        }
+      }
+    }
+    */
+
+    revalidatePath('/orders')
+
+    return { success: true }
+  } catch (error) {
+    console.error('Error bulk marking orders as shipped:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}

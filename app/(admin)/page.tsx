@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Store, Megaphone, Package, Plus, ArrowRight, DollarSign, TrendingUp, ShoppingCart } from 'lucide-react'
+import { Store, Megaphone, Package, Plus, ArrowRight, DollarSign, TrendingUp, ShoppingCart, Clock, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 import { RevenueChart } from '@/components/dashboard/revenue-chart'
@@ -28,8 +28,9 @@ export default async function AdminDashboard() {
   // Fetch campaigns
   const { data: campaigns } = await supabase
     .from('campaigns')
-    .select('id, name, status, store:stores!inner(created_by)')
+    .select('id, name, slug, status, closes_at, store:stores!inner(created_by, id, slug)')
     .eq('store.created_by', user.id)
+    .order('created_at', { ascending: false })
 
   const activeCampaigns = campaigns?.filter((c) => c.status === 'active').length || 0
 
@@ -106,6 +107,16 @@ export default async function AdminDashboard() {
 
   // Recent orders
   const recentOrders = allOrders?.slice(0, 5) || []
+
+  // Campaigns closing soon (within 48 hours)
+  const fortyEightHoursFromNow = new Date()
+  fortyEightHoursFromNow.setHours(fortyEightHoursFromNow.getHours() + 48)
+
+  const campaignsClosingSoon = campaigns?.filter((c) => {
+    if (c.status !== 'active') return false
+    const closesAt = new Date(c.closes_at)
+    return closesAt <= fortyEightHoursFromNow && closesAt > now
+  }).slice(0, 5) || []
 
   const greeting = getGreeting()
   const userName = user.email?.split('@')[0] || 'there'
@@ -194,6 +205,50 @@ export default async function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <RevenueChart orders={paidOrders} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Campaigns Closing Soon */}
+      {campaignsClosingSoon.length > 0 && (
+        <Card className="border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+              <CardTitle className="text-orange-900 dark:text-orange-100">
+                Campaigns Closing Soon
+              </CardTitle>
+            </div>
+            <CardDescription className="text-orange-700 dark:text-orange-300">
+              These campaigns will close within 48 hours
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {campaignsClosingSoon.map((campaign: any) => {
+                const closesAt = new Date(campaign.closes_at)
+                const hoursUntilClose = Math.round(
+                  (closesAt.getTime() - now.getTime()) / (1000 * 60 * 60)
+                )
+
+                return (
+                  <Link
+                    key={campaign.id}
+                    href={`/campaigns/${campaign.id}`}
+                    className="flex items-center justify-between p-3 rounded-lg border border-orange-200 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/20 transition-colors"
+                  >
+                    <div className="space-y-1">
+                      <div className="font-medium">{campaign.name}</div>
+                      <div className="flex items-center gap-2 text-sm text-orange-700 dark:text-orange-300">
+                        <Clock className="h-3 w-3" />
+                        Closes in {hoursUntilClose} {hoursUntilClose === 1 ? 'hour' : 'hours'}
+                      </div>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                  </Link>
+                )
+              })}
+            </div>
           </CardContent>
         </Card>
       )}

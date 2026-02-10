@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { Plus, Store as StoreIcon, ExternalLink, Pencil } from 'lucide-react'
+import { DuplicateStoreButton } from '@/components/stores/duplicate-store-button'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -95,6 +96,7 @@ async function StoresList() {
                         <Pencil className="h-4 w-4" />
                       </Button>
                     </Link>
+                    <DuplicateStoreButton storeId={store.id} storeName={store.name} />
                     <Link href={`/store/${store.slug}`} target="_blank">
                       <Button variant="ghost" size="sm">
                         <ExternalLink className="h-4 w-4" />

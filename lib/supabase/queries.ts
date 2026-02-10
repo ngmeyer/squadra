@@ -431,6 +431,50 @@ export async function deleteCampaign(id: string): Promise<void> {
   }
 }
 
+/**
+ * Update campaign statuses based on dates
+ * - draft → active when opens_at <= now
+ * - active → closed when closes_at <= now
+ */
+export async function updateCampaignStatuses(): Promise<{
+  activated: number
+  closed: number
+}> {
+  const supabase = await createClient()
+  const now = new Date().toISOString()
+
+  // Activate draft campaigns
+  const { data: activated, error: activateError } = await supabase
+    .from('campaigns')
+    .update({ status: 'active' })
+    .eq('status', 'draft')
+    .lte('opens_at', now)
+    .select('id')
+
+  if (activateError) {
+    console.error('Error activating campaigns:', activateError)
+    throw new Error('Failed to activate campaigns')
+  }
+
+  // Close active campaigns
+  const { data: closed, error: closeError } = await supabase
+    .from('campaigns')
+    .update({ status: 'closed' })
+    .eq('status', 'active')
+    .lte('closes_at', now)
+    .select('id')
+
+  if (closeError) {
+    console.error('Error closing campaigns:', closeError)
+    throw new Error('Failed to close campaigns')
+  }
+
+  return {
+    activated: activated?.length || 0,
+    closed: closed?.length || 0,
+  }
+}
+
 // ========== CAMPAIGN PRODUCTS ==========
 
 export type ProductStatus = 'active' | 'hidden' | 'sold_out'

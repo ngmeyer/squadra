@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Plus, Package } from 'lucide-react'
+import { ArrowLeft, Plus, Package, BarChart3 } from 'lucide-react'
 import { getCampaignById } from '@/lib/supabase/queries'
 import { StatusBadge } from '@/components/campaigns/status-badge'
 import { formatDate, formatDateTime } from '@/lib/utils/dates'
@@ -38,12 +38,20 @@ export default async function CampaignDetailPage({ params }: CampaignDetailPageP
             Campaign details and products
           </p>
         </div>
-        <Button asChild>
-          <Link href={`/campaigns/${id}/products/new`}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Product
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href={`/campaigns/${id}/analytics`}>
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Analytics
+            </Link>
+          </Button>
+          <Button asChild>
+            <Link href={`/campaigns/${id}/products/new`}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Product
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Campaign Info */}
