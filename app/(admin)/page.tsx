@@ -1,9 +1,12 @@
 import { getUser } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Store, Megaphone, Package, Plus, ArrowRight } from 'lucide-react'
+import { Store, Megaphone, Package, Plus, ArrowRight, DollarSign, TrendingUp, ShoppingCart } from 'lucide-react'
 import Link from 'next/link'
+import { formatDistanceToNow } from 'date-fns'
+import { RevenueChart } from '@/components/dashboard/revenue-chart'
 
 export default async function AdminDashboard() {
   const user = await getUser()
@@ -12,23 +15,97 @@ export default async function AdminDashboard() {
     return null
   }
 
-  // TODO: Fetch actual data from Supabase
-  // For now, using placeholder data
-  const stats = {
-    totalStores: 0,
-    activeCampaigns: 0,
-    totalOrders: 0,
-    pendingOrders: 0,
-  }
+  const supabase = await createClient()
 
-  const recentActivity: Array<{
-    id: string
-    type: string
-    message: string
-    timestamp: Date
-  }> = [
-    // Placeholder - will be replaced with actual data
-  ]
+  // Fetch stores
+  const { data: stores } = await supabase
+    .from('stores')
+    .select('id, name')
+    .eq('created_by', user.id)
+
+  const totalStores = stores?.length || 0
+
+  // Fetch campaigns
+  const { data: campaigns } = await supabase
+    .from('campaigns')
+    .select('id, name, status, store:stores!inner(created_by)')
+    .eq('store.created_by', user.id)
+
+  const activeCampaigns = campaigns?.filter((c) => c.status === 'active').length || 0
+
+  // Fetch orders
+  const { data: allOrders } = await supabase
+    .from('orders')
+    .select(
+      `
+      *,
+      campaign:campaigns!inner(
+        store:stores!inner(created_by)
+      )
+    `
+    )
+    .eq('campaign.store.created_by', user.id)
+
+  const totalOrders = allOrders?.length || 0
+  const pendingOrders = allOrders?.filter((o) => o.status === 'paid' && !o.shipped_at).length || 0
+
+  // Calculate this month's revenue
+  const now = new Date()
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+  
+  const thisMonthOrders = allOrders?.filter((o) => {
+    const orderDate = new Date(o.created_at)
+    return orderDate >= startOfMonth && o.status === 'paid'
+  }) || []
+
+  const revenueThisMonth = thisMonthOrders.reduce((sum, order) => sum + order.total_cents, 0)
+  const ordersThisMonth = thisMonthOrders.length
+
+  // Calculate average order value
+  const paidOrders = allOrders?.filter((o) => o.status === 'paid') || []
+  const averageOrderValue = paidOrders.length > 0
+    ? paidOrders.reduce((sum, order) => sum + order.total_cents, 0) / paidOrders.length
+    : 0
+
+  // Get top selling products
+  const { data: topProducts } = await supabase
+    .from('order_items')
+    .select(
+      `
+      quantity,
+      variant:variants(
+        campaign_product:campaign_products(
+          title,
+          campaign:campaigns(
+            store:stores!inner(created_by)
+          )
+        )
+      ),
+      order:orders!inner(status)
+    `
+    )
+    .eq('variant.campaign_product.campaign.store.created_by', user.id)
+    .eq('order.status', 'paid')
+
+  // Aggregate product sales
+  const productSales = topProducts?.reduce((acc: any, item: any) => {
+    const title = item.variant?.campaign_product?.title
+    if (title) {
+      if (!acc[title]) {
+        acc[title] = 0
+      }
+      acc[title] += item.quantity
+    }
+    return acc
+  }, {}) || {}
+
+  const topSellingProducts = Object.entries(productSales)
+    .sort(([, a]: any, [, b]: any) => b - a)
+    .slice(0, 5)
+    .map(([title, quantity]) => ({ title, quantity }))
+
+  // Recent orders
+  const recentOrders = allOrders?.slice(0, 5) || []
 
   const greeting = getGreeting()
   const userName = user.email?.split('@')[0] || 'there'
@@ -49,13 +126,28 @@ export default async function AdminDashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Stores</CardTitle>
-            <Store className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+            <CardTitle className="text-sm font-medium">Revenue This Month</CardTitle>
+            <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalStores}</div>
+            <div className="text-2xl font-bold">${(revenueThisMonth / 100).toFixed(2)}</div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Create your first store to get started
+              From {ordersThisMonth} {ordersThisMonth === 1 ? 'order' : 'orders'}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Average Order Value
+            </CardTitle>
+            <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">${(averageOrderValue / 100).toFixed(2)}</div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Across all orders
             </p>
           </CardContent>
         </Card>
@@ -65,25 +157,12 @@ export default async function AdminDashboard() {
             <CardTitle className="text-sm font-medium">
               Active Campaigns
             </CardTitle>
-            <Megaphone className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+            <Megaphone className="h-4 w-4 text-purple-600 dark:text-purple-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.activeCampaigns}</div>
+            <div className="text-2xl font-bold">{activeCampaigns}</div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Currently running
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-            <Package className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalOrders}</div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              All time
+              {totalStores} {totalStores === 1 ? 'store' : 'stores'}
             </p>
           </CardContent>
         </Card>
@@ -91,18 +170,111 @@ export default async function AdminDashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Pending Orders
+              Orders to Ship
             </CardTitle>
-            <Package className="h-4 w-4 text-orange-500 dark:text-orange-400" />
+            <Package className="h-4 w-4 text-orange-600 dark:text-orange-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.pendingOrders}</div>
+            <div className="text-2xl font-bold">{pendingOrders}</div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Need fulfillment
             </p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Revenue Chart */}
+      {paidOrders.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue Over Time</CardTitle>
+            <CardDescription>
+              Daily revenue from paid orders (last 30 days)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RevenueChart orders={paidOrders} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Top Products */}
+      {topSellingProducts.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Selling Products</CardTitle>
+            <CardDescription>
+              Best performers across all campaigns
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {topSellingProducts.map((product: any, index: number) => (
+                <div key={index} className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900 text-sm font-semibold text-blue-700 dark:text-blue-300">
+                      {index + 1}
+                    </div>
+                    <div className="font-medium">{product.title}</div>
+                  </div>
+                  <Badge variant="secondary">{product.quantity} sold</Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent Orders */}
+      {recentOrders.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Recent Orders</CardTitle>
+                <CardDescription>
+                  Latest orders from your campaigns
+                </CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/orders">
+                  View all
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {recentOrders.map((order: any) => (
+                <Link
+                  key={order.id}
+                  href={`/orders/${order.id}`}
+                  className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <div className="space-y-1">
+                    <div className="font-medium font-mono text-sm">
+                      {order.order_number}
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                      {order.customer_name} • {formatDistanceToNow(new Date(order.created_at), { addSuffix: true })}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <div className="font-semibold">
+                        ${(order.total_cents / 100).toFixed(2)}
+                      </div>
+                      <OrderStatusBadge status={order.status} />
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-gray-400" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quick Actions */}
       <Card>
@@ -114,15 +286,15 @@ export default async function AdminDashboard() {
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <Button asChild variant="outline" className="h-auto py-6 justify-start">
-            <Link href="/admin/stores">
+            <Link href="/stores">
               <div className="flex items-center gap-3">
                 <div className="rounded-full bg-blue-100 dark:bg-blue-900 p-2">
                   <Store className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                 </div>
                 <div className="text-left">
-                  <div className="font-semibold">Create Store</div>
+                  <div className="font-semibold">Manage Stores</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Set up a new shop
+                    View or create stores
                   </div>
                 </div>
               </div>
@@ -130,15 +302,15 @@ export default async function AdminDashboard() {
           </Button>
 
           <Button asChild variant="outline" className="h-auto py-6 justify-start">
-            <Link href="/admin/campaigns">
+            <Link href="/campaigns">
               <div className="flex items-center gap-3">
                 <div className="rounded-full bg-green-100 dark:bg-green-900 p-2">
                   <Megaphone className="h-5 w-5 text-green-600 dark:text-green-400" />
                 </div>
                 <div className="text-left">
-                  <div className="font-semibold">New Campaign</div>
+                  <div className="font-semibold">Campaigns</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Launch group buy
+                    Launch or manage
                   </div>
                 </div>
               </div>
@@ -146,7 +318,7 @@ export default async function AdminDashboard() {
           </Button>
 
           <Button asChild variant="outline" className="h-auto py-6 justify-start">
-            <Link href="/admin/orders">
+            <Link href="/orders">
               <div className="flex items-center gap-3">
                 <div className="rounded-full bg-purple-100 dark:bg-purple-900 p-2">
                   <Package className="h-5 w-5 text-purple-600 dark:text-purple-400" />
@@ -163,58 +335,8 @@ export default async function AdminDashboard() {
         </CardContent>
       </Card>
 
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Recent Activity</CardTitle>
-              <CardDescription>
-                Latest updates from your campaigns
-              </CardDescription>
-            </div>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/admin/orders">
-                View all
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {recentActivity.length === 0 ? (
-            <div className="text-center py-12">
-              <Package className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600" />
-              <h3 className="mt-4 text-sm font-semibold text-gray-900 dark:text-white">
-                No activity yet
-              </h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Get started by creating your first store and campaign.
-              </p>
-              <div className="mt-6">
-                <Button asChild>
-                  <Link href="/admin/stores">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Create Store
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Activity items will go here */}
-              {recentActivity.map((item, index) => (
-                <div key={index} className="flex items-start gap-4 pb-4 border-b last:border-0">
-                  {/* Activity item content */}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Getting Started Guide (shown when no stores exist) */}
-      {stats.totalStores === 0 && (
+      {totalStores === 0 && (
         <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/20">
           <CardHeader>
             <CardTitle className="text-blue-900 dark:text-blue-100">
@@ -268,7 +390,7 @@ export default async function AdminDashboard() {
             </ol>
             <div className="mt-6">
               <Button asChild>
-                <Link href="/admin/stores">
+                <Link href="/stores">
                   <Plus className="mr-2 h-4 w-4" />
                   Create Your First Store
                 </Link>
@@ -278,6 +400,21 @@ export default async function AdminDashboard() {
         </Card>
       )}
     </div>
+  )
+}
+
+function OrderStatusBadge({ status }: { status: string }) {
+  const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+    pending: 'outline',
+    paid: 'default',
+    shipped: 'secondary',
+    cancelled: 'destructive',
+  }
+
+  return (
+    <Badge variant={variants[status] || 'default'} className="text-xs">
+      {status.charAt(0).toUpperCase() + status.slice(1)}
+    </Badge>
   )
 }
 

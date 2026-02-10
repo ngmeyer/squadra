@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/service'
+import { sendEmailTemplate } from '@/lib/email/client'
+import OrderConfirmationEmail from '@/lib/email/templates/order-confirmation'
+import { format } from 'date-fns'
 
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error('Missing STRIPE_SECRET_KEY')
@@ -190,6 +193,66 @@ async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     // }
 
     console.log('Order created successfully:', order.id)
+
+    // Send order confirmation email
+    try {
+      const { data: fullOrder } = await supabase
+        .from('orders')
+        .select(
+          `
+          *,
+          campaign:campaigns(
+            name,
+            ships_at,
+            store:stores(name, contact_email)
+          ),
+          order_items(
+            *,
+            variant:variants(
+              option_combo,
+              campaign_product:campaign_products(title)
+            )
+          )
+        `
+        )
+        .eq('id', order.id)
+        .single()
+
+      if (fullOrder && (fullOrder as any).order_items) {
+        const emailItems = (fullOrder as any).order_items.map((item: any) => ({
+          productTitle: item.variant.campaign_product.title,
+          variantOptions: item.variant.option_combo,
+          customization: item.customization_value || undefined,
+          quantity: item.quantity,
+          unitPrice: item.unit_price_cents,
+          totalPrice: item.total_price_cents,
+        }))
+
+        const orderData = fullOrder as any
+        await sendEmailTemplate(
+          orderData.customer_email,
+          `Order Confirmation - ${orderData.order_number}`,
+          OrderConfirmationEmail({
+            orderNumber: orderData.order_number,
+            customerName: orderData.customer_name,
+            orderItems: emailItems,
+            subtotal: orderData.subtotal_cents,
+            tax: orderData.tax_cents,
+            total: orderData.total_cents,
+            campaignName: orderData.campaign.name,
+            campaignShipDate: orderData.campaign.ships_at
+              ? format(new Date(orderData.campaign.ships_at), 'MMMM d, yyyy')
+              : undefined,
+            storeContactEmail: orderData.campaign.store.contact_email,
+            storeName: orderData.campaign.store.name,
+          })
+        )
+        console.log('Order confirmation email sent')
+      }
+    } catch (emailError) {
+      console.error('Failed to send order confirmation email:', emailError)
+      // Don't fail the webhook if email fails
+    }
   } catch (error) {
     console.error('Error handling payment success:', error)
   }
