@@ -2,8 +2,19 @@ import { Resend } from 'resend'
 import { ReactElement } from 'react'
 import { render } from '@react-email/components'
 
-// Initialize Resend client
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy initialize Resend client (only when actually sending emails)
+let resendClient: Resend | null = null
+
+function getResendClient(): Resend {
+	if (!resendClient) {
+		const apiKey = process.env.RESEND_API_KEY
+		if (!apiKey || apiKey.includes('your_api_key')) {
+			throw new Error('RESEND_API_KEY not properly configured')
+		}
+		resendClient = new Resend(apiKey)
+	}
+	return resendClient
+}
 
 export interface SendEmailOptions {
   to: string | string[]
@@ -35,6 +46,7 @@ export async function sendEmail(options: SendEmailOptions) {
   const from = options.from || process.env.EMAIL_FROM || 'Squadra <noreply@squadra.app>'
 
   try {
+    const resend = getResendClient()
     const response = await resend.emails.send({
       from,
       to: Array.isArray(options.to) ? options.to : [options.to],
