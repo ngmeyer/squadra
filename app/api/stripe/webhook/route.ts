@@ -1,259 +1,200 @@
-import { NextResponse } from 'next/server'
-import { headers } from 'next/headers'
-import Stripe from 'stripe'
-import { createClient } from '@/lib/supabase/service'
-import { sendEmailTemplate } from '@/lib/email/client'
-import OrderConfirmationEmail from '@/lib/email/templates/order-confirmation'
-import { format } from 'date-fns'
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('Missing STRIPE_SECRET_KEY')
+const supabase = createClient(
+	process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+	process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+);
+
+export async function POST(request: NextRequest) {
+	const body = await request.text();
+	const sig = request.headers.get('stripe-signature');
+
+	if (!sig) {
+		return NextResponse.json(
+			{ error: 'Missing stripe-signature header' },
+			{ status: 400 }
+		);
+	}
+
+	try {
+		// ============================================
+		// 1. EXTRACT STORE ID FROM METADATA
+		// ============================================
+		// First, parse the event without verification to get metadata
+		const event = JSON.parse(body);
+		const storeId = event.data?.object?.metadata?.storeId;
+
+		if (!storeId) {
+			console.warn('[Webhook] No storeId in event metadata');
+			return NextResponse.json({ ok: true }); // Silently ignore
+		}
+
+		// ============================================
+		// 2. FETCH STORE'S WEBHOOK SECRET
+		// ============================================
+		const { data: store, error: storeError } = await supabase
+			.from('stores')
+			.select('stripe_webhook_secret, stripe_secret_key')
+			.eq('id', storeId)
+			.single();
+
+		if (storeError || !store || !store.stripe_webhook_secret) {
+			console.error('[Webhook] Store not found or webhook secret not configured:', storeId);
+			return NextResponse.json(
+				{ error: 'Store not configured for webhooks' },
+				{ status: 404 }
+			);
+		}
+
+		// ============================================
+		// 3. VERIFY EVENT WITH STORE'S WEBHOOK SECRET
+		// ============================================
+		let verifiedEvent: Stripe.Event;
+		try {
+			const stripe = new Stripe(store.stripe_secret_key);
+
+			verifiedEvent = stripe.webhooks.constructEvent(
+				body,
+				sig,
+				store.stripe_webhook_secret
+			) as Stripe.Event;
+		} catch (err: any) {
+			console.error('[Webhook] Signature verification failed:', err.message);
+			return NextResponse.json(
+				{ error: 'Invalid signature' },
+				{ status: 400 }
+			);
+		}
+
+		// ============================================
+		// 4. HANDLE PAYMENT EVENTS
+		// ============================================
+		switch (verifiedEvent.type) {
+			case 'payment_intent.succeeded':
+				await handlePaymentSucceeded(verifiedEvent.data.object as Stripe.PaymentIntent);
+				break;
+
+			case 'payment_intent.payment_failed':
+				await handlePaymentFailed(verifiedEvent.data.object as Stripe.PaymentIntent);
+				break;
+
+			case 'charge.refunded':
+				await handleRefund(verifiedEvent.data.object as Stripe.Charge);
+				break;
+
+			default:
+				console.log(`[Webhook] Unhandled event type: ${verifiedEvent.type}`);
+		}
+
+		return NextResponse.json({ ok: true });
+	} catch (error: any) {
+		console.error('[Webhook] Error:', error);
+		return NextResponse.json(
+			{ error: error.message || 'Webhook processing failed' },
+			{ status: 500 }
+		);
+	}
 }
 
-if (!process.env.STRIPE_WEBHOOK_SECRET) {
-  throw new Error('Missing STRIPE_WEBHOOK_SECRET')
+// ============================================
+// HANDLER: Payment Succeeded
+// ============================================
+async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+	const { storeId, campaignId } = paymentIntent.metadata || {};
+
+	if (!storeId || !campaignId) {
+		console.warn('[Webhook] Missing storeId or campaignId in payment metadata');
+		return;
+	}
+
+	console.log(`[Webhook] Payment succeeded for store ${storeId}, campaign ${campaignId}`);
+
+	// Find or create order record
+	const { data: order, error: orderError } = await supabase
+		.from('orders')
+		.select('id')
+		.eq('payment_intent_id', paymentIntent.id)
+		.single();
+
+	if (!orderError && order) {
+		// Update existing order
+		await supabase
+			.from('orders')
+			.update({
+				status: 'completed',
+				stripe_payment_id: paymentIntent.id
+			})
+			.eq('id', order.id);
+
+		console.log(`[Webhook] Updated order ${order.id} to completed`);
+	}
+
+	// TODO: Send confirmation email to customer
+	// TODO: Update variant order counts (requires DB function)
+	// TODO: Trigger fulfillment workflow
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2026-01-28.clover'
-})
+// ============================================
+// HANDLER: Payment Failed
+// ============================================
+async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
+	const { storeId, campaignId } = paymentIntent.metadata || {};
 
-export async function POST(request: Request) {
-  const body = await request.text()
-  const headersList = await headers()
-  const signature = headersList.get('stripe-signature')
+	if (!storeId || !campaignId) {
+		console.warn('[Webhook] Missing metadata in failed payment');
+		return;
+	}
 
-  if (!signature) {
-    return NextResponse.json(
-      { error: 'Missing signature' },
-      { status: 400 }
-    )
-  }
+	console.log(`[Webhook] Payment failed for store ${storeId}, campaign ${campaignId}`);
 
-  let event: Stripe.Event
+	// Update order status
+	const { data: order } = await supabase
+		.from('orders')
+		.select('id')
+		.eq('payment_intent_id', paymentIntent.id)
+		.single();
 
-  try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    )
-  } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message)
-    return NextResponse.json(
-      { error: 'Invalid signature' },
-      { status: 400 }
-    )
-  }
+	if (order) {
+		await supabase
+			.from('orders')
+			.update({ status: 'payment_failed' })
+			.eq('id', order.id);
+	}
 
-  // Handle the event
-  if (event.type === 'payment_intent.succeeded') {
-    const paymentIntent = event.data.object as Stripe.PaymentIntent
-    await handlePaymentSuccess(paymentIntent)
-  }
-
-  return NextResponse.json({ received: true })
+	// TODO: Send payment failure notification to customer
 }
 
-async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
-  try {
-    const supabase = createClient()
+// ============================================
+// HANDLER: Refund Processed
+// ============================================
+async function handleRefund(charge: Stripe.Charge) {
+	const paymentIntentId = charge.payment_intent as string;
 
-    // Extract metadata
-    const campaignId = paymentIntent.metadata.campaignId
-    const items = JSON.parse(paymentIntent.metadata.items || '[]')
-    const customerEmail = paymentIntent.receipt_email || ''
-    const customerName = paymentIntent.shipping?.name || paymentIntent.metadata.customerName || ''
+	if (!paymentIntentId) {
+		console.warn('[Webhook] No payment_intent in refund');
+		return;
+	}
 
-    if (!campaignId || items.length === 0) {
-      console.error('Invalid payment intent metadata')
-      return
-    }
+	console.log(`[Webhook] Refund processed for payment intent ${paymentIntentId}`);
 
-    // Fetch variants to calculate prices
-    const variantIds = items.map((item: any) => item.variantId)
-    const { data: variants } = await supabase
-      .from('variants')
-      .select('id, price_cents, campaign_product_id, campaign_products(customization_config)')
-      .in('id', variantIds) as {
-        data: Array<{
-          id: string
-          price_cents: number
-          campaign_product_id: string
-          campaign_products: { customization_config: any } | null
-        }> | null
-      }
+	// Find order
+	const { data: order } = await supabase
+		.from('orders')
+		.select('id')
+		.eq('stripe_payment_id', charge.id)
+		.single();
 
-    if (!variants) {
-      console.error('Variants not found')
-      return
-    }
+	if (order) {
+		await supabase
+			.from('orders')
+			.update({ status: 'refunded' })
+			.eq('id', order.id);
 
-    // Fetch campaign to get store_id
-    const { data: campaignData } = await supabase
-      .from('campaigns')
-      .select('store_id')
-      .eq('id', campaignId)
-      .single() as { data: { store_id: string } | null }
+		console.log(`[Webhook] Updated order ${order.id} to refunded`);
+	}
 
-    if (!campaignData) {
-      console.error('Campaign not found')
-      return
-    }
-
-    // Fetch store to get tax rate
-    const { data: storeData } = await supabase
-      .from('stores')
-      .select('tax_rate')
-      .eq('id', campaignData.store_id)
-      .single() as { data: { tax_rate: number } | null }
-
-    const taxRate = storeData?.tax_rate || 0
-
-    // Calculate totals
-    let subtotalCents = 0
-    for (const item of items) {
-      const variant = variants.find((v: any) => v.id === item.variantId)
-      if (!variant) continue
-
-      let itemPrice = variant.price_cents
-      if (item.customizationValue) {
-        const customConfig = (variant.campaign_products as any)?.customization_config
-        if (customConfig?.price_cents) {
-          itemPrice += customConfig.price_cents
-        }
-      }
-
-      subtotalCents += itemPrice * item.quantity
-    }
-
-    const taxCents = Math.round(subtotalCents * taxRate)
-    const totalCents = subtotalCents + taxCents
-
-    // Create order
-    const { data: order, error: orderError } = await (supabase
-      .from('orders')
-      .insert({
-        campaign_id: campaignId,
-        customer_email: customerEmail,
-        customer_name: customerName,
-        subtotal_cents: subtotalCents,
-        tax_cents: taxCents,
-        total_cents: totalCents,
-        stripe_payment_intent_id: paymentIntent.id,
-        status: 'paid'
-      } as any)
-      .select()
-      .single() as any)
-
-    if (orderError) {
-      console.error('Error creating order:', orderError)
-      return
-    }
-
-    // Create order items
-    const orderItems = []
-    for (const item of items) {
-      const variant = variants.find((v: any) => v.id === item.variantId)
-      if (!variant) continue
-
-      let itemPrice = variant.price_cents
-      if (item.customizationValue) {
-        const customConfig = (variant.campaign_products as any)?.customization_config
-        if (customConfig?.price_cents) {
-          itemPrice += customConfig.price_cents
-        }
-      }
-
-      orderItems.push({
-        order_id: order.id,
-        variant_id: item.variantId,
-        customization_value: item.customizationValue || null,
-        quantity: item.quantity,
-        unit_price_cents: itemPrice,
-        total_price_cents: itemPrice * item.quantity
-      })
-    }
-
-    const { error: itemsError } = await (supabase
-      .from('order_items')
-      .insert(orderItems as any) as any)
-
-    if (itemsError) {
-      console.error('Error creating order items:', itemsError)
-      return
-    }
-
-    // TODO: Update variant order counts (requires DB function)
-    // for (const item of items) {
-    //   await supabase.rpc('increment_variant_orders', {
-    //     variant_id: item.variantId,
-    //     quantity: item.quantity
-    //   })
-    // }
-
-    console.log('Order created successfully:', order.id)
-
-    // Send order confirmation email
-    try {
-      const { data: fullOrder } = await supabase
-        .from('orders')
-        .select(
-          `
-          *,
-          campaign:campaigns(
-            name,
-            ships_at,
-            store:stores(name, contact_email)
-          ),
-          order_items(
-            *,
-            variant:variants(
-              option_combo,
-              campaign_product:campaign_products(title)
-            )
-          )
-        `
-        )
-        .eq('id', order.id)
-        .single()
-
-      if (fullOrder && (fullOrder as any).order_items) {
-        const emailItems = (fullOrder as any).order_items.map((item: any) => ({
-          productTitle: item.variant.campaign_product.title,
-          variantOptions: item.variant.option_combo,
-          customization: item.customization_value || undefined,
-          quantity: item.quantity,
-          unitPrice: item.unit_price_cents,
-          totalPrice: item.total_price_cents,
-        }))
-
-        const orderData = fullOrder as any
-        await sendEmailTemplate(
-          orderData.customer_email,
-          `Order Confirmation - ${orderData.order_number}`,
-          OrderConfirmationEmail({
-            orderNumber: orderData.order_number,
-            customerName: orderData.customer_name,
-            orderItems: emailItems,
-            subtotal: orderData.subtotal_cents,
-            tax: orderData.tax_cents,
-            total: orderData.total_cents,
-            campaignName: orderData.campaign.name,
-            campaignShipDate: orderData.campaign.ships_at
-              ? format(new Date(orderData.campaign.ships_at), 'MMMM d, yyyy')
-              : undefined,
-            storeContactEmail: orderData.campaign.store.contact_email,
-            storeName: orderData.campaign.store.name,
-          })
-        )
-        console.log('Order confirmation email sent')
-      }
-    } catch (emailError) {
-      console.error('Failed to send order confirmation email:', emailError)
-      // Don't fail the webhook if email fails
-    }
-  } catch (error) {
-    console.error('Error handling payment success:', error)
-  }
+	// TODO: Send refund confirmation to customer
+	// TODO: Reverse variant order counts
 }
