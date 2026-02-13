@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockAuthSession } from './helpers/auth';
 
 test.describe('Root Page Redirects', () => {
   test('unauthenticated user is redirected to login', async ({ page }) => {
@@ -10,15 +11,8 @@ test.describe('Root Page Redirects', () => {
   });
 
   test('authenticated user is redirected to admin dashboard', async ({ page, context }) => {
-    // Mock authenticated session by setting cookie
-    await context.addCookies([
-      {
-        name: 'sb-access-token',
-        value: 'mock-token',
-        domain: 'localhost',
-        path: '/',
-      },
-    ]);
+    // Mock authenticated session with proper Supabase format
+    await mockAuthSession(context);
     
     await page.goto('/');
     

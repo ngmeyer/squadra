@@ -2,13 +2,39 @@ import { Page, BrowserContext } from '@playwright/test';
 
 /**
  * Mock authentication helper for E2E tests
- * In production, replace with actual Supabase test user login
+ * Creates a valid Supabase session format that the SSR client can parse
  */
 export async function mockAuthSession(context: BrowserContext) {
+  // Create a mock session in the format Supabase expects
+  const mockSession = {
+    access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzMzNjQ4MDAwLCJpYXQiOjE3MzM2NDQ0MDAsInN1YiI6InRlc3QtdXNlci1pZCIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSJ9.mock',
+    refresh_token: 'mock-refresh-token',
+    expires_in: 3600,
+    expires_at: 1733648000,
+    token_type: 'bearer',
+    user: {
+      id: 'test-user-id',
+      aud: 'authenticated',
+      role: 'authenticated',
+      email: 'test@example.com',
+      email_confirmed_at: '2024-01-01T00:00:00Z',
+      phone: '',
+      confirmation_sent_at: null,
+      confirmed_at: '2024-01-01T00:00:00Z',
+      last_sign_in_at: '2024-12-08T00:00:00Z',
+      app_metadata: {},
+      user_metadata: {},
+      identities: [],
+      created_at: '2024-01-01T00:00:00Z',
+      updated_at: '2024-12-08T00:00:00Z'
+    }
+  };
+
+  // Set the auth cookie in the format Supabase SSR expects
   await context.addCookies([
     {
       name: 'sb-dnsrrddirtfzwdwuezpk-auth-token',
-      value: 'mock-session-token',
+      value: JSON.stringify(mockSession),
       domain: 'localhost',
       path: '/',
       httpOnly: true,
@@ -16,6 +42,38 @@ export async function mockAuthSession(context: BrowserContext) {
       sameSite: 'Lax'
     }
   ]);
+}
+
+/**
+ * Alternative: Use a simpler cookie format that works with the test helpers
+ * This sets multiple cookies that the middleware might check
+ */
+export async function mockAuthSessionSimple(context: BrowserContext) {
+  // Try setting multiple cookie formats
+  const cookies = [
+    {
+      name: 'sb-access-token',
+      value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXItaWQiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ.test',
+      domain: 'localhost',
+      path: '/',
+      httpOnly: true,
+      secure: false,
+      sameSite: 'Lax'
+    },
+    {
+      name: 'sb-refresh-token',
+      value: 'test-refresh-token',
+      domain: 'localhost',
+      path: '/',
+      httpOnly: true,
+      secure: false,
+      sameSite: 'Lax'
+    }
+  ];
+
+  for (const cookie of cookies) {
+    await context.addCookies([cookie]);
+  }
 }
 
 /**
@@ -46,7 +104,10 @@ export async function loginAsTestUser(page: Page, email?: string, password?: str
  */
 export async function isAuthenticated(page: Page): Promise<boolean> {
   const cookies = await page.context().cookies();
-  return cookies.some(cookie => cookie.name.includes('auth-token'));
+  return cookies.some(cookie => 
+    cookie.name.includes('auth-token') || 
+    cookie.name.includes('access-token')
+  );
 }
 
 /**

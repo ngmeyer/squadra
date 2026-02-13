@@ -1,16 +1,10 @@
 import { test, expect } from '@playwright/test';
+import { mockAuthSession } from './helpers/auth';
 
 test.describe('Admin Dashboard', () => {
   test.beforeEach(async ({ page, context }) => {
-    // Mock authenticated session
-    await context.addCookies([
-      {
-        name: 'sb-access-token',
-        value: 'mock-token',
-        domain: 'localhost',
-        path: '/',
-      },
-    ]);
+    // Mock authenticated session with proper Supabase format
+    await mockAuthSession(context);
     
     await page.goto('/admin');
   });
