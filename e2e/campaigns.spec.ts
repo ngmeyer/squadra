@@ -6,7 +6,7 @@ test.describe('Campaign Management', () => {
     // Mock authenticated session with proper Supabase format
     await mockAuthSession(context);
     
-    await page.goto('/campaigns');
+    await page.goto('/campaigns', { waitUntil: 'networkidle' });
   });
 
   test('campaigns page loads', async ({ page }) => {
@@ -30,7 +30,7 @@ test.describe('Campaign Creation Flow', () => {
     // Mock authenticated session with proper Supabase format
     await mockAuthSession(context);
     
-    await page.goto('/campaigns/new');
+    await page.goto('/campaigns/new', { waitUntil: 'networkidle' });
   });
 
   test('create campaign form loads', async ({ page }) => {

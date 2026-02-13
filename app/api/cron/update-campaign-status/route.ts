@@ -16,11 +16,21 @@ import { NextResponse } from 'next/server'
  */
 export async function GET(request: Request) {
   try {
-    // Optional: Add authorization check
+    // Require authorization in production
     const authHeader = request.headers.get('authorization')
     const cronSecret = process.env.CRON_SECRET
     
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    // In production, cron secret is required
+    if (process.env.NODE_ENV === 'production') {
+      if (!cronSecret) {
+        console.error('CRON_SECRET not configured in production')
+        return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
+      }
+      if (authHeader !== `Bearer ${cronSecret}`) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+    } else if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      // In development, check auth if secret is set
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

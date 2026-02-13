@@ -6,7 +6,7 @@ test.describe('Admin Dashboard', () => {
     // Mock authenticated session with proper Supabase format
     await mockAuthSession(context);
     
-    await page.goto('/admin');
+    await page.goto('/admin', { waitUntil: 'networkidle' });
   });
 
   test('admin dashboard loads for authenticated users', async ({ page }) => {
@@ -44,7 +44,7 @@ test.describe('Admin Dashboard', () => {
 
 test.describe('Admin Dashboard - Unauthenticated', () => {
   test('unauthenticated users are redirected to login', async ({ page }) => {
-    await page.goto('/admin');
+    await page.goto('/admin', { waitUntil: 'networkidle' });
     
     // Should redirect to login
     await expect(page).toHaveURL(/.*login.*/);

@@ -3,7 +3,7 @@ import { mockAuthSession } from './helpers/auth';
 
 test.describe('Root Page Redirects', () => {
   test('unauthenticated user is redirected to login', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     
     // Should redirect to login page
     await expect(page).toHaveURL('/login');
@@ -14,7 +14,7 @@ test.describe('Root Page Redirects', () => {
     // Mock authenticated session with proper Supabase format
     await mockAuthSession(context);
     
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'networkidle' });
     
     // Should redirect to admin dashboard
     await expect(page).toHaveURL('/admin');
@@ -23,7 +23,7 @@ test.describe('Root Page Redirects', () => {
 
 test.describe('Login Page', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/login');
+    await page.goto('/login', { waitUntil: 'networkidle' });
   });
 
   test('login page loads successfully', async ({ page }) => {

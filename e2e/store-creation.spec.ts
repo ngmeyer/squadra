@@ -7,7 +7,7 @@ test.describe('Store Creation Flow', () => {
   });
 
   test('should navigate to store creation page', async ({ page }) => {
-    await page.goto('/admin');
+    await page.goto('/admin', { waitUntil: 'networkidle' });
     
     // Look for "Create Store" or similar button
     const createStoreButton = page.getByRole('button', { name: /create.*store/i });
@@ -22,7 +22,7 @@ test.describe('Store Creation Flow', () => {
   });
 
   test('should show store creation form fields', async ({ page }) => {
-    await page.goto('/admin/stores/new');
+    await page.goto('/admin/stores/new', { waitUntil: 'networkidle' });
     
     // Check for store name field
     const storeNameInput = page.locator('input[name="name"], input[id="name"]');
@@ -44,7 +44,7 @@ test.describe('Store Creation Flow', () => {
   });
 
   test('should validate required fields', async ({ page }) => {
-    await page.goto('/admin/stores/new');
+    await page.goto('/admin/stores/new', { waitUntil: 'networkidle' });
     
     const submitButton = page.locator('button[type="submit"]').first();
     

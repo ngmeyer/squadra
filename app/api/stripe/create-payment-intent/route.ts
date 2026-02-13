@@ -1,39 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient as createServiceClient } from '@/lib/supabase/service';
 import Stripe from 'stripe';
+import { z } from 'zod';
+
+// Input validation schema
+const PaymentIntentSchema = z.object({
+	storeId: z.string().uuid(),
+	amount: z.number().positive('Amount must be a positive number'),
+	campaignId: z.string().uuid(),
+	items: z.array(z.any()).optional()
+});
 
 export async function POST(request: NextRequest) {
 	try {
-		// Initialize Supabase client at request time (not build time)
-		const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-		const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+		// Use the shared service role client
+		const supabase = createServiceClient();
 		
-		if (!supabaseUrl || !supabaseKey) {
+		// Parse and validate request body
+		const body = await request.json();
+		const validation = PaymentIntentSchema.safeParse(body);
+		
+		if (!validation.success) {
 			return NextResponse.json(
-				{ error: 'Server configuration error: Supabase not configured' },
-				{ status: 500 }
-			);
-		}
-		
-		const supabase = createClient(supabaseUrl, supabaseKey);
-		
-		const { storeId, amount, campaignId, items } = await request.json();
-
-		if (!storeId || !amount || !campaignId) {
-			return NextResponse.json(
-				{ error: 'Missing required fields: storeId, amount, campaignId' },
+				{ error: 'Invalid input', details: validation.error.flatten() },
 				{ status: 400 }
 			);
 		}
+		
+		const { storeId, amount, campaignId, items } = validation.data;
 
 		// ============================================
 		// 1. FETCH STORE'S STRIPE KEYS
 		// ============================================
+		// Note: Type assertion needed until types are regenerated from DB
 		const { data: store, error: storeError } = await supabase
 			.from('stores')
 			.select('stripe_secret_key, stripe_publishable_key, stripe_connected')
 			.eq('id', storeId)
-			.single();
+			.single() as { 
+				data: { 
+					stripe_secret_key: string | null; 
+					stripe_publishable_key: string | null; 
+					stripe_connected: boolean | null;
+				} | null; 
+				error: any 
+			};
 
 		if (storeError || !store) {
 			return NextResponse.json(
@@ -52,6 +63,13 @@ export async function POST(request: NextRequest) {
 		// ============================================
 		// 2. INITIALIZE STRIPE WITH STORE'S KEYS
 		// ============================================
+		if (!store.stripe_secret_key) {
+			return NextResponse.json(
+				{ error: 'Stripe secret key not configured for this store' },
+				{ status: 500 }
+			);
+		}
+		
 		const stripe = new Stripe(store.stripe_secret_key);
 
 		// ============================================

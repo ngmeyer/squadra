@@ -9,7 +9,7 @@ test.describe('Campaign Creation Flow', () => {
 
   test('should navigate to campaign creation page', async ({ page }) => {
     // Start from admin dashboard
-    await page.goto('/admin');
+    await page.goto('/admin', { waitUntil: 'networkidle' });
     
     // Look for campaigns section
     const campaignsLink = page.getByRole('link', { name: /campaigns/i });
@@ -29,7 +29,7 @@ test.describe('Campaign Creation Flow', () => {
   });
 
   test('should show campaign form fields', async ({ page }) => {
-    await page.goto('/admin/campaigns/new');
+    await page.goto('/admin/campaigns/new', { waitUntil: 'networkidle' });
     
     // Check for campaign name
     const nameInput = page.locator('input[name="name"], input[id="name"]');
@@ -49,7 +49,7 @@ test.describe('Campaign Creation Flow', () => {
   });
 
   test('should validate campaign dates', async ({ page }) => {
-    await page.goto('/admin/campaigns/new');
+    await page.goto('/admin/campaigns/new', { waitUntil: 'networkidle' });
     
     const nameInput = page.locator('input[name="name"]').first();
     

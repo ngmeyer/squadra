@@ -5,12 +5,16 @@ import { Page, BrowserContext } from '@playwright/test';
  * Creates a valid Supabase session format that the SSR client can parse
  */
 export async function mockAuthSession(context: BrowserContext) {
+  // Create dynamic timestamps (expires in 1 hour)
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + 3600;
+
   // Create a mock session in the format Supabase expects
   const mockSession = {
-    access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzMzNjQ4MDAwLCJpYXQiOjE3MzM2NDQ0MDAsInN1YiI6InRlc3QtdXNlci1pZCIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSJ9.mock',
+    access_token: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoke2V4cGlyZXNBdH0sImlhdCI6JHtub3d9LCJzdWIiOiJ0ZXN0LXVzZXItaWQiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ.mock`,
     refresh_token: 'mock-refresh-token',
     expires_in: 3600,
-    expires_at: 1733648000,
+    expires_at: expiresAt,
     token_type: 'bearer',
     user: {
       id: 'test-user-id',
@@ -21,12 +25,12 @@ export async function mockAuthSession(context: BrowserContext) {
       phone: '',
       confirmation_sent_at: null,
       confirmed_at: '2024-01-01T00:00:00Z',
-      last_sign_in_at: '2024-12-08T00:00:00Z',
+      last_sign_in_at: new Date().toISOString(),
       app_metadata: {},
       user_metadata: {},
       identities: [],
       created_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-12-08T00:00:00Z'
+      updated_at: new Date().toISOString()
     }
   };
 

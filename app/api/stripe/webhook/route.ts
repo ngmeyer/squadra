@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient as createServiceClient } from '@/lib/supabase/service';
 import Stripe from 'stripe';
 
 export async function POST(request: NextRequest) {
@@ -14,27 +14,26 @@ export async function POST(request: NextRequest) {
 	}
 
 	try {
-		// Initialize Supabase client at request time (not build time)
-		const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-		const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+		// Use the shared service role client
+		const supabase = createServiceClient();
 		
-		if (!supabaseUrl || !supabaseKey) {
+		// ============================================
+		// 1. PARSE JSON TO GET STORE ID (unverified)
+		// ============================================
+		// Note: We need storeId to fetch the webhook secret, but we won't trust
+		// any other data until after signature verification
+		let unverifiedStoreId: string | undefined;
+		try {
+			const unverifiedEvent = JSON.parse(body);
+			unverifiedStoreId = unverifiedEvent.data?.object?.metadata?.storeId;
+		} catch (err) {
 			return NextResponse.json(
-				{ error: 'Server configuration error: Supabase not configured' },
-				{ status: 500 }
+				{ error: 'Invalid JSON payload' },
+				{ status: 400 }
 			);
 		}
-		
-		const supabase = createClient(supabaseUrl, supabaseKey);
-		
-		// ============================================
-		// 1. EXTRACT STORE ID FROM METADATA
-		// ============================================
-		// First, parse the event without verification to get metadata
-		const event = JSON.parse(body);
-		const storeId = event.data?.object?.metadata?.storeId;
 
-		if (!storeId) {
+		if (!unverifiedStoreId) {
 			console.warn('[Webhook] No storeId in event metadata');
 			return NextResponse.json({ ok: true }); // Silently ignore
 		}
@@ -42,14 +41,21 @@ export async function POST(request: NextRequest) {
 		// ============================================
 		// 2. FETCH STORE'S WEBHOOK SECRET
 		// ============================================
+		// Note: Type assertion needed until types are regenerated from DB
 		const { data: store, error: storeError } = await supabase
 			.from('stores')
 			.select('stripe_webhook_secret, stripe_secret_key')
-			.eq('id', storeId)
-			.single();
+			.eq('id', unverifiedStoreId)
+			.single() as {
+				data: {
+					stripe_webhook_secret: string | null;
+					stripe_secret_key: string | null;
+				} | null;
+				error: any;
+			};
 
 		if (storeError || !store || !store.stripe_webhook_secret) {
-			console.error('[Webhook] Store not found or webhook secret not configured:', storeId);
+			console.error('[Webhook] Store not found or webhook secret not configured:', unverifiedStoreId);
 			return NextResponse.json(
 				{ error: 'Store not configured for webhooks' },
 				{ status: 404 }
@@ -61,6 +67,10 @@ export async function POST(request: NextRequest) {
 		// ============================================
 		let verifiedEvent: Stripe.Event;
 		try {
+			if (!store.stripe_secret_key || !store.stripe_webhook_secret) {
+				throw new Error('Missing Stripe credentials');
+			}
+
 			const stripe = new Stripe(store.stripe_secret_key);
 
 			verifiedEvent = stripe.webhooks.constructEvent(
@@ -75,6 +85,8 @@ export async function POST(request: NextRequest) {
 				{ status: 400 }
 			);
 		}
+		
+		// From this point forward, only use verifiedEvent data
 
 		// ============================================
 		// 4. HANDLE PAYMENT EVENTS
@@ -123,7 +135,7 @@ async function handlePaymentSucceeded(supabase: any, paymentIntent: Stripe.Payme
 	const { data: order, error: orderError } = await supabase
 		.from('orders')
 		.select('id')
-		.eq('payment_intent_id', paymentIntent.id)
+		.eq('stripe_payment_intent_id', paymentIntent.id)
 		.single();
 
 	if (!orderError && order) {
@@ -132,7 +144,7 @@ async function handlePaymentSucceeded(supabase: any, paymentIntent: Stripe.Payme
 			.from('orders')
 			.update({
 				status: 'completed',
-				stripe_payment_id: paymentIntent.id
+				stripe_payment_intent_id: paymentIntent.id
 			})
 			.eq('id', order.id);
 
@@ -161,7 +173,7 @@ async function handlePaymentFailed(supabase: any, paymentIntent: Stripe.PaymentI
 	const { data: order } = await supabase
 		.from('orders')
 		.select('id')
-		.eq('payment_intent_id', paymentIntent.id)
+		.eq('stripe_payment_intent_id', paymentIntent.id)
 		.single();
 
 	if (order) {
@@ -187,11 +199,11 @@ async function handleRefund(supabase: any, charge: Stripe.Charge) {
 
 	console.log(`[Webhook] Refund processed for payment intent ${paymentIntentId}`);
 
-	// Find order
+	// Find order by payment intent
 	const { data: order } = await supabase
 		.from('orders')
 		.select('id')
-		.eq('stripe_payment_id', charge.id)
+		.eq('stripe_payment_intent_id', paymentIntentId)
 		.single();
 
 	if (order) {

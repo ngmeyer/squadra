@@ -6,7 +6,7 @@ test.describe('Store Management', () => {
     // Mock authenticated session with proper Supabase format
     await mockAuthSession(context);
     
-    await page.goto('/stores');
+    await page.goto('/stores', { waitUntil: 'networkidle' });
   });
 
   test('stores page loads', async ({ page }) => {
@@ -31,7 +31,7 @@ test.describe('Store Creation Flow', () => {
     // Mock authenticated session with proper Supabase format
     await mockAuthSession(context);
     
-    await page.goto('/stores/new');
+    await page.goto('/stores/new', { waitUntil: 'networkidle' });
   });
 
   test('create store form loads', async ({ page }) => {
