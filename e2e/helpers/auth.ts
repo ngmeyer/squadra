@@ -50,7 +50,7 @@ export async function mockAuthSession(context: BrowserContext) {
  */
 export async function mockAuthSessionSimple(context: BrowserContext) {
   // Try setting multiple cookie formats
-  const cookies = [
+  await context.addCookies([
     {
       name: 'sb-access-token',
       value: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXItaWQiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ.test',
@@ -69,11 +69,7 @@ export async function mockAuthSessionSimple(context: BrowserContext) {
       secure: false,
       sameSite: 'Lax'
     }
-  ];
-
-  for (const cookie of cookies) {
-    await context.addCookies([cookie]);
-  }
+  ]);
 }
 
 /**
