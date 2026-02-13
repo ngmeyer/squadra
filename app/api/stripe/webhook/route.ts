@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 
-const supabase = createClient(
-	process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-	process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
-
 export async function POST(request: NextRequest) {
 	const body = await request.text();
 	const sig = request.headers.get('stripe-signature');
@@ -19,6 +14,19 @@ export async function POST(request: NextRequest) {
 	}
 
 	try {
+		// Initialize Supabase client at request time (not build time)
+		const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+		const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+		
+		if (!supabaseUrl || !supabaseKey) {
+			return NextResponse.json(
+				{ error: 'Server configuration error: Supabase not configured' },
+				{ status: 500 }
+			);
+		}
+		
+		const supabase = createClient(supabaseUrl, supabaseKey);
+		
 		// ============================================
 		// 1. EXTRACT STORE ID FROM METADATA
 		// ============================================
@@ -73,15 +81,15 @@ export async function POST(request: NextRequest) {
 		// ============================================
 		switch (verifiedEvent.type) {
 			case 'payment_intent.succeeded':
-				await handlePaymentSucceeded(verifiedEvent.data.object as Stripe.PaymentIntent);
+				await handlePaymentSucceeded(supabase, verifiedEvent.data.object as Stripe.PaymentIntent);
 				break;
 
 			case 'payment_intent.payment_failed':
-				await handlePaymentFailed(verifiedEvent.data.object as Stripe.PaymentIntent);
+				await handlePaymentFailed(supabase, verifiedEvent.data.object as Stripe.PaymentIntent);
 				break;
 
 			case 'charge.refunded':
-				await handleRefund(verifiedEvent.data.object as Stripe.Charge);
+				await handleRefund(supabase, verifiedEvent.data.object as Stripe.Charge);
 				break;
 
 			default:
@@ -101,7 +109,7 @@ export async function POST(request: NextRequest) {
 // ============================================
 // HANDLER: Payment Succeeded
 // ============================================
-async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+async function handlePaymentSucceeded(supabase: any, paymentIntent: Stripe.PaymentIntent) {
 	const { storeId, campaignId } = paymentIntent.metadata || {};
 
 	if (!storeId || !campaignId) {
@@ -139,7 +147,7 @@ async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
 // ============================================
 // HANDLER: Payment Failed
 // ============================================
-async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
+async function handlePaymentFailed(supabase: any, paymentIntent: Stripe.PaymentIntent) {
 	const { storeId, campaignId } = paymentIntent.metadata || {};
 
 	if (!storeId || !campaignId) {
@@ -169,7 +177,7 @@ async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
 // ============================================
 // HANDLER: Refund Processed
 // ============================================
-async function handleRefund(charge: Stripe.Charge) {
+async function handleRefund(supabase: any, charge: Stripe.Charge) {
 	const paymentIntentId = charge.payment_intent as string;
 
 	if (!paymentIntentId) {
