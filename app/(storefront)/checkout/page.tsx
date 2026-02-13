@@ -2,13 +2,11 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { loadStripe } from '@stripe/stripe-js'
+import { loadStripe, Stripe } from '@stripe/stripe-js'
 import { Elements } from '@stripe/react-stripe-js'
 import { CheckoutForm } from '@/components/storefront/checkout-form'
 import { useCartStore } from '@/lib/stores/cart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 function CheckoutContent() {
   const router = useRouter()
@@ -17,6 +15,8 @@ function CheckoutContent() {
   const { items, campaignId: cartCampaignId } = useCartStore()
   
   const [clientSecret, setClientSecret] = useState('')
+  const [publishableKey, setPublishableKey] = useState('')
+  const [stripe, setStripe] = useState<Stripe | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,7 +32,7 @@ function CheckoutContent() {
       return
     }
 
-    // Create payment intent
+    // Create payment intent and load Stripe
     const createIntent = async () => {
       try {
         const response = await fetch('/api/stripe/create-payment-intent', {
@@ -56,6 +56,11 @@ function CheckoutContent() {
 
         const data = await response.json()
         setClientSecret(data.clientSecret)
+        setPublishableKey(data.publishableKey)
+        
+        // Load Stripe with store's publishable key
+        const stripeInstance = await loadStripe(data.publishableKey)
+        setStripe(stripeInstance)
       } catch (err) {
         console.error('Error:', err)
         setError('Failed to initialize checkout. Please try again.')
@@ -134,9 +139,9 @@ function CheckoutContent() {
 
         {/* Checkout Form */}
         <div className="lg:col-span-2">
-          {clientSecret && (
+          {clientSecret && stripe && (
             <Elements
-              stripe={stripePromise}
+              stripe={stripe}
               options={{
                 clientSecret,
                 appearance: {
