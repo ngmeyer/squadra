@@ -28,7 +28,7 @@
 ## Pre-Test Setup
 
 ### 1. Environment Checklist
-- [ ] Squadra deployed at `https://squadra-azure.vercel.app`
+- [ ] Squadra deployed at `https://squadrashop.com`
 - [ ] Supabase database connected
 - [ ] Resend API key configured (for emails)
 - [ ] Stripe Connect OAuth configured
@@ -55,14 +55,14 @@ ZIP: Any valid ZIP
 ## Phase 1: Store Owner Setup (15 min)
 
 ### Step 1.1: Create Store
-1. Navigate to `https://squadra-azure.vercel.app`
+1. Navigate to `https://squadrashop.com`
 2. Click "Create Store"
 3. Fill in:
    - Store Name: "Gearu Test Shop"
    - Slug: "gearutest" (or custom)
    - Description: "Test store for E2E validation"
 4. Complete store creation
-5. **Verify:** Store URL works: `https://squadra-azure.vercel.app/[slug]`
+5. **Verify:** Store URL works: `https://squadrashop.com/[slug]`
 
 **📝 Note Result:** Store slug: _______________
 

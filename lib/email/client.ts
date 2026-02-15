@@ -43,7 +43,7 @@ export async function sendEmail(options: SendEmailOptions) {
     throw new Error('Email service not configured')
   }
 
-  const from = options.from || process.env.EMAIL_FROM || 'Squadra <noreply@squadra.app>'
+  const from = options.from || process.env.EMAIL_FROM || 'Squadra <noreply@squadrashop.com>'
 
   try {
     const resend = getResendClient()

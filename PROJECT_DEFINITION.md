@@ -79,7 +79,7 @@ Squadra is a multi-tenant e-commerce platform built for a custom gear business t
 ## Core Features
 
 ### 1. Multi-Tenant Store Management
-- Create/manage multiple branded stores (e.g., `dhst.squadra.app`)
+- Create/manage multiple branded stores (e.g., `dhst.squadrashop.com`)
 - Per-store configuration:
   - Logo upload
   - Custom color themes (2-3 colors)
@@ -269,7 +269,7 @@ order_items (id, order_id, variant_id, customization_value,
 1. **Tech Stack:** Preferred framework? (Next.js, SvelteKit, etc.)
 2. **File Storage:** S3, Cloudflare R2, or other?
 3. **Email:** SendGrid, Resend, or other?
-4. **Domain:** `squadra.app` or other?
+4. **Domain:** `squadrashop.com` ✅
 5. **Timeline:** Target launch date?
 
 ---
